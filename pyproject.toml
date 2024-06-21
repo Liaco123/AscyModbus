@@ -1,0 +1,11 @@
+[tool.ruff]
+exclude = [".venv"]
+line-length = 120
+fix = true
+indent-width = 2
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 60
+[tool.ruff.lint]
+ignore = ["F401", "F402", "E501"]
+select = ["E", "F", "B", "Q"]
