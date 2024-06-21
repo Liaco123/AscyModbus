@@ -16,11 +16,26 @@ class ModbusError(Enum):
   GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND = 0x0B
 
 
+
+class Singleton(type):
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super().__call__(*args, **kwargs)
+        return cls._instances[cls]
+
 # 基础 Modbus 异常类
-class ModbusException(Exception):
-  def __init__(self, error_code: ModbusError, message: str) -> None:
-    self.error_code = error_code
-    super().__init__(f"{error_code.name}: {message}")
+class ModbusException(Exception, metaclass=Singleton):
+    def __init__(self, error_code: ModbusError, message: str) -> None:
+        self.error_code = error_code
+        super().__init__(f"{error_code.name}: {message}")
+
+# 基础 Modbus 异常类
+# class ModbusException(Exception):
+#   def __init__(self, error_code: ModbusError, message: str) -> None:
+#     self.error_code = error_code
+#     super().__init__(f"{error_code.name}: {message}")
     # LOGGER.error(f"ModbusException [{error_code.name}]: {message}")
 
 
