@@ -8,7 +8,7 @@
 
 import logging
 import socket
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from threading import Lock
 from typing import Any, Callable
 
@@ -33,6 +33,7 @@ class SocketManager:
     self.timeout = timeout
     for _ in range(self.max_sockets):
       sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+      # sock.setblocking(0)
       # LOGGER.debug("create_connection")
       self.available_sockets.append(sock)
 
@@ -46,7 +47,7 @@ class SocketManager:
       sock = self.available_sockets.pop()
       if self.is_socket_available(sock):
         return sock
-      return
+      return socket.create_connection((self.host, self.port), timeout=self.timeout)
 
   def is_socket_available(self, sock):
     try:
@@ -73,23 +74,27 @@ class SocketManager:
 class execute:
   def __init__(self, max_workers: int):
     self.executor = ThreadPoolExecutor(max_workers=max_workers)
+    self.futures = []
 
   def run(self, func: Callable, *args, **kwargs) -> Any:
-    """
-    将函数提交到线程池中运行，并返回其结果。
-
-    :param func: 要在线程池中运行的函数
-    :param args: 函数的位置参数
-    :param kwargs: 函数的关键字参数
-    :return: 函数的返回值
-    """
     try:
       future: Future = self.executor.submit(func, *args, **kwargs)
       return future.result()
-    # except RuntimeError:
-    #   pass
     except Exception as e:
       raise e
+
+  def submit(self, func: Callable, *args, **kwargs) -> Any:
+    future = self.executor.submit(func, *args, **kwargs)
+    self.futures.append(future)
+
+  def gather_results(self):
+    results = []
+    for future in as_completed(self.futures):
+      try:
+        results.append(future.result())
+      except Exception as e:
+        results.append(e)
+    return results
 
   def shutdown(self):
     """

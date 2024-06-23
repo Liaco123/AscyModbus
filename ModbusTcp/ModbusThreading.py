@@ -32,6 +32,7 @@ class ModbusTcpClient:
     self.__data_format = data_format
     self.__threads = execute(kwargs.get("threads", 10))
     self.__sockets = SocketManager(kwargs.get("sockts", 10))
+    self.__wait_writed = False
     self.connect()
 
   def __enter__(self):
@@ -174,7 +175,7 @@ class ModbusTcpClient:
 
     try:
       sock.sendall(request)
-      response = sock.recv(2048)
+      response = sock.recv(1024)
       self.__sockets.release_socket(sock)
       self.__handle_error(response[0:9])
       res = self.__res2bit(quantity, response[9:])
@@ -391,7 +392,7 @@ class ModbusTcpClient:
     sock = self.__sockets.get_socket()
     return self.__threads.run(self.__read_coil, sock, start_address, quantity, unit_id, 2)
 
-  def write_multiple_registers(self, start_address, value: list, unit_id=1) -> bool:
+  def write_multiple_registers(self, start_address, value: list, unit_id=1) -> None:
     """写多个寄存器
 
     Args:
@@ -405,9 +406,11 @@ class ModbusTcpClient:
 
     self.__func = "write_multiple_registers"
     sock = self.__sockets.get_socket()
-    return self.__threads.run(self.__write_register, sock, start_address, value, unit_id, function_code=16)
+    if self.__wait_writed:
+      return self.__threads.run(self.__write_register, sock, start_address, value, unit_id, function_code=16)
+    return self.__threads.submit(self.__write_register, sock, start_address, value, unit_id, function_code=16)
 
-  def write_single_registers(self, address, value: int, unit_id=1) -> list:
+  def write_single_registers(self, address, value: int, unit_id=1) -> None:
     """写单个寄存器
 
     Args:
@@ -421,9 +424,11 @@ class ModbusTcpClient:
 
     self.__func = "write_single_registers"
     sock = self.__sockets.get_socket()
-    return self.__threads.run(self.__write_register, sock, address, (value,), unit_id, function_code=16)
+    if self.__wait_writed:
+      return self.__threads.run(self.__write_register, sock, address, (value,), unit_id, function_code=16)
+    return self.__threads.submit(self.__write_register, sock, address, (value,), unit_id, function_code=16)
 
-  def write_multiple_coils(self, start_address, value: list, unit_id=1) -> bool:
+  def write_multiple_coils(self, start_address, value: list, unit_id=1) -> None:
     """写多个线圈
 
     Args:
@@ -437,9 +442,11 @@ class ModbusTcpClient:
 
     self.__func = "write_multiple_coils"
     sock = self.__sockets.get_socket()
-    return self.__threads.run(self.__write_coils, sock, start_address, value, unit_id)
+    if self.__wait_writed:
+      return self.__threads.run(self.__write_coils, sock, start_address, value, unit_id)
+    return self.__threads.submit(self.__write_coils, sock, start_address, value, unit_id)
 
-  def write_single_coils(self, address, value: int, unit_id=1) -> bool:
+  def write_single_coils(self, address, value: int, unit_id=1) -> None:
     """写单个线圈
 
     Args:
@@ -453,4 +460,14 @@ class ModbusTcpClient:
 
     self.__func = "write_single_coils"
     sock = self.__sockets.get_socket()
-    return self.__threads.run(self.__write_coils, sock, address, (value,), unit_id)
+    if self.__wait_writed:
+      return self.__threads.run(self.__write_coils, sock, address, (value,), unit_id)
+    return self.__threads.submit(self.__write_coils, sock, address, (value,), unit_id)
+
+  @property
+  def wait_writed(self):
+    return self.__wait_writed
+
+  @wait_writed.setter
+  def wait_writed(self, data: bool):
+    self.__wait_writed = data
