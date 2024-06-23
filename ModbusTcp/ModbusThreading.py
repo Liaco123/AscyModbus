@@ -16,7 +16,6 @@ class ModbusTcpClient:
     self.init = True
     self.is_connected = False
     self.is_swap = False
-    self.quantity = 0
     self.data_format = data_format
     self.lock = threading.Lock()
 
@@ -284,12 +283,10 @@ class ModbusTcpClient:
     return parsed_data
 
   def read_holding_registers(self, start_address, quantity, unit_id=1):
-    self.quantity = quantity
     self.func = "read_holding_registers"
     return self.__read_registers(start_address, quantity, unit_id, function_code=3)
 
   def read_input_registers(self, start_address, quantity, unit_id=1):
-    self.quantity = quantity
     self.func = "read_input_registers"
     return self.__read_registers(start_address, quantity, unit_id, function_code=4)
 
