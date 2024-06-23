@@ -2,14 +2,13 @@ import socket
 import struct
 import threading
 
-from AscynioModbus import Exceptions
+from ModbusTcp import Exceptions
+from ModbusTcp.DataFormat import DataFormat
+from ModbusTcp.ulitis import LOGGER
 
-from .DataFormat import DataFormat
-from .ulitis import LOGGER
 
-
-class ModbusTCPClient:
-  def __init__(self, host, port=502, data_format: DataFormat = DataFormat.UNSIGNED_16_INT_BIG):
+class ModbusTcpClient:
+  def __init__(self, host, port=502, data_format: DataFormat = DataFormat.SIGNED_16_INT_BIG):
     self.host = host
     self.port = port
     self.transaction_id = 0
@@ -331,18 +330,13 @@ class ModbusTCPClient:
 
 
 # 示例使用
-def main():
-  modbus_tcp = ModbusTCPClient(host="192.168.1.100")
-  modbus_tcp.connect()
-  if modbus_tcp.is_connected:
-    try:
-      response = modbus_tcp.read_holding_registers(start_address=0, quantity=10, unit_id=1)
-      LOGGER.debug(f"Response= {response}")
-    except Exceptions.SlaveDeviceFailure as e:
-      LOGGER.error(f"Failed to read holding registers: {e}")
-    finally:
-      modbus_tcp.disconnect()
-
-
 if __name__ == "__main__":
-  main()
+  modbus_tcp = ModbusTcpClient(host="127.0.0.1")
+  modbus_tcp.connect()
+  try:
+    response = modbus_tcp.read_holding_registers(start_address=0, quantity=10, unit_id=1)
+    LOGGER.info(f"Response= {response}")
+  except Exceptions.SlaveDeviceFailure as e:
+    LOGGER.error(f"Failed to read holding registers: {e}")
+  finally:
+    modbus_tcp.disconnect()

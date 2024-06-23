@@ -1,6 +1,6 @@
-from enum import Enum, auto
+from enum import Enum
 
-from .ulitis import LOGGER
+from ModbusTcp.ulitis import LOGGER
 
 
 # 定义 Modbus 异常代码的枚举类
