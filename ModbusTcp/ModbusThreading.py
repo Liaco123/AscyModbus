@@ -2,21 +2,22 @@
 # @ Author: Liaco
 # @ Create Time: 2024-06-23 16:14:43
 # @ Modified by: Liaco
-# @ Modified time: 2024-06-23 18:43:47
+# @ Modified time: 2024-06-23 22:09:50
 # @ Description:
 """
 
 import socket
 import struct
-import threading
 
 from ModbusTcp import Exceptions
 from ModbusTcp.DataFormat import DataFormat
-from ModbusTcp.ulitis import LOGGER
+from ModbusTcp.ulitis import LOGGER, SocketManager, execute
 
 
 class ModbusTcpClient:
-  def __init__(self, host: str = "1270.0.1", port: int = 502, data_format: DataFormat = DataFormat.SIGNED_16_INT_BIG):
+  def __init__(
+    self, host: str = "1270.0.1", port: int = 502, data_format: DataFormat = DataFormat.SIGNED_16_INT_BIG, **kwargs
+  ):
     """_summary_
 
     Args:
@@ -27,23 +28,24 @@ class ModbusTcpClient:
     self.__host = host
     self.__port = port
     self.__transaction_id = 0
-    self.__socket = None
-    self.__init = True
     self.__is_connected = False
     self.__data_format = data_format
-    self.__lock = threading.Lock()
+    self.__threads = execute(kwargs.get("threads", 10))
+    self.__sockets = SocketManager(kwargs.get("sockts", 10))
+    self.connect()
 
   def __enter__(self):
-    self.connect()
+    if not self.__is_connected:
+      self.connect()
     return self
 
   def __exit__(self, exc_type, exc_value, traceback):
-    if self.__is_connected:
-      self.disconnect()
+    self.disconnect()
     return False
 
   def __del__(self):
-    self.disconnect()
+    self.__threads.shutdown()
+    self.__sockets.shutdown()
 
   def __build_request(self, unit_id, function_code, start_address, dates):
     quantity = dates if "read" in self.__func else len(dates)
@@ -148,57 +150,61 @@ class ModbusTcpClient:
       res.append(byte)
     return res
 
-  def __read_registers(self, address, quantity, unit_id=1, function_code=3):
-    self.connect()
+  def __read_registers(self, sock, address, quantity, unit_id=1, function_code=3):
     request = self.__build_request(unit_id, function_code, address, quantity)
-    self.__socket.sendall(request)
+    sock.sendall(request)
 
-    with self.__lock:
-      try:
-        response = self.__socket.recv(1024)
-      except Exception as e:
-        self.disconnect()
-        LOGGER.error(f"Error reading register: {e}")
-        raise e
+    try:
+      response = sock.recv(1024)
+      self.__sockets.release_socket(sock)
+    except Exceptions.ModbusException as e:
+      raise e
+    except Exception as e:
+      self.disconnect()
+      LOGGER.error(f"Error reading register: {e}")
+      raise e
 
     return self.__parse_response(response)
 
-  def __read_coil(self, start_address, quantity, unit_id=1):
-    self.connect()
+  def __read_coil(self, sock, start_address, quantity, unit_id=1, function_code=1):
     self.__transaction_id += 1
     mbap_header = struct.pack(">H H H B", self.__transaction_id, 0, 6, unit_id)
-    pdu = struct.pack(">B H H", 1, start_address, quantity)
+    pdu = struct.pack(">B H H", function_code, start_address, quantity)
     request = mbap_header + pdu
 
-    with self.__lock:
-      try:
-        self.__socket.sendall(request)
-        response = self.__socket.recv(100)
-        self.__handle_error(response[0:9])
-        res = self.__res2bit(quantity, response[9:])
-        return res
-      except Exception as e:
-        self.disconnect()
-        raise e
+    try:
+      sock.sendall(request)
+      response = sock.recv(2048)
+      self.__sockets.release_socket(sock)
+      self.__handle_error(response[0:9])
+      res = self.__res2bit(quantity, response[9:])
+      return res
+    except Exceptions.ModbusException as e:
+      raise e
+    except Exception as e:
+      self.disconnect()
+      LOGGER.error(f"Error reading coils: {e}")
+      raise e
 
-  def __write_register(self, address, value, unit_id=1, function_code=6):
-    self.connect()
+  def __write_register(self, sock, address, value, unit_id=1, function_code=6):
     request = self.__build_request(unit_id, function_code, address, value)
-    self.__socket.sendall(request)
+    sock.sendall(request)
 
-    with self.__lock:
-      try:
-        response = self.__socket.recv(1024)
-        LOGGER.debug(f"response = {response}")
-        self.__handle_error(response[0:9])
-        return f"{self.__func} successed"
-      except Exception as e:
+    try:
+      response = sock.recv(1024)
+      self.__sockets.release_socket(sock)
+      LOGGER.debug(f"response = {response}")
+      self.__handle_error(response[0:9])
+      return f"{self.__func} successed"
+    except Exceptions.ModbusException as e:
+      raise e
+    except Exception as e:
+      if self.__is_connected:
         self.disconnect()
         LOGGER.error(f"Error writing register: {e}")
-        raise e
+      raise e
 
-  def __write_coils(self, address, values, unit_id=1):
-    self.connect()
+  def __write_coils(self, sock, address, values, unit_id=1):
     length = (colis := len(values)) // 8
     length += 1 if colis % 8 > 0 else 0
     self.__transaction_id += 1
@@ -207,18 +213,19 @@ class ModbusTcpClient:
     msg = self.__build_request_msg(values)
     mbap_header = struct.pack(">HHHB", self.__transaction_id, 0, 7 + length, unit_id)
     request = mbap_header + pdu + msg
-    self.__socket.sendall(request)
+    sock.sendall(request)
 
-    with self.__lock:
-      try:
-        response = self.__socket.recv(1024)
-        LOGGER.debug(f"response = {response}")
-        self.__handle_error(response[0:9])
-        return f"{self.__func} successed"
-      except Exception as e:
-        self.disconnect()
-        LOGGER.error(f"Error writing coils: {e}")
-        raise e
+    try:
+      response = sock.recv(1024)
+      self.__sockets.release_socket(sock)
+      LOGGER.debug(f"response = {response}")
+      self.__handle_error(response[0:9])
+      return f"{self.__func} successed"
+    except Exceptions.ModbusException as e:
+      raise e
+    except Exception as e:
+      # LOGGER.error(f"Error writing coils: {e}")
+      raise e
 
   def __res2bit(self, quantity, response):
     nums_coils = quantity // 8 + 1
@@ -298,12 +305,9 @@ class ModbusTcpClient:
 
   def connect(self, timeout=10):
     try:
-      self.__socket = socket.create_connection((self.__host, self.__port), timeout=timeout)
+      self.__sockets._initialize_sockets(self.__host, self.__port, timeout=timeout)
+      LOGGER.info(f"Connected to {self.__host}:{self.__port}")
       self.__is_connected = True
-      if self.__init:
-        self.__init = False
-        LOGGER.info(f"Connected to {self.__host}:{self.__port}")
-
     except socket.timeout as e:
       raise TimeoutError(f"Connection to {self.__host}:{self.__port} timed out.") from e
     except OSError as e:
@@ -311,13 +315,17 @@ class ModbusTcpClient:
       raise e
 
   def disconnect(self):
+    if not self.__is_connected:
+      return None
     try:
-      if self.__is_connected:
-        self.__socket.close()
-        LOGGER.info(f"Disconnected from {self.__host}:{self.__port}")
-        self.__is_connected = False
+      self.__threads.shutdown()
+      self.__sockets.shutdown()
+      LOGGER.info(f"Disconnected from {self.__host}:{self.__port}")
+      self.__is_connected = False
+    # except RuntimeError:
+    #   pass
     except Exception as e:
-      LOGGER.error(f"Error during disconnect: {e}")
+      # LOGGER.error(f"Error during disconnect: {e}")
       raise e
 
   def read_holding_registers(self, start_address, quantity: int, unit_id=1) -> list:
@@ -331,9 +339,9 @@ class ModbusTcpClient:
     Returns:
         list: 读取到的对应的寄存器的值
     """
-
     self.__func = "read_holding_registers"
-    return self.__read_registers(start_address, quantity, unit_id, function_code=3)
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__read_registers, sock, start_address, quantity, unit_id, 3)
 
   def read_input_registers(self, start_address, quantity: int, unit_id=1) -> list:
     """读输入寄存器
@@ -348,7 +356,8 @@ class ModbusTcpClient:
     """
 
     self.__func = "read_input_registers"
-    return self.__read_registers(start_address, quantity, unit_id, function_code=4)
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__read_registers, sock, start_address, quantity, unit_id, function_code=4)
 
   def read_coils(self, start_address, quantity: int, unit_id=1) -> list:
     """读线圈
@@ -363,7 +372,24 @@ class ModbusTcpClient:
     """
 
     self.__func = "read_coils"
-    return self.__read_coil(start_address, quantity, unit_id)
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__read_coil, sock, start_address, quantity, unit_id)
+
+  def read_input_coils(self, start_address, quantity: int, unit_id=1) -> list:
+    """读线圈
+
+    Args:
+        start_address : 要读取的起始地址
+        quantity (int): 要读取的数量
+        unit_id (int, optional): 设备地址（slave_id）= 1
+
+    Returns:
+        list: 读取到的对应的线圈的值
+    """
+
+    self.__func = "read_input_coils"
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__read_coil, sock, start_address, quantity, unit_id, 2)
 
   def write_multiple_registers(self, start_address, value: list, unit_id=1) -> bool:
     """写多个寄存器
@@ -378,7 +404,8 @@ class ModbusTcpClient:
     """
 
     self.__func = "write_multiple_registers"
-    return self.__write_register(start_address, value, unit_id, function_code=16)
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__write_register, sock, start_address, value, unit_id, function_code=16)
 
   def write_single_registers(self, address, value: int, unit_id=1) -> list:
     """写单个寄存器
@@ -393,7 +420,8 @@ class ModbusTcpClient:
     """
 
     self.__func = "write_single_registers"
-    return self.__write_register(address, (value,), unit_id, function_code=16)
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__write_register, sock, address, (value,), unit_id, function_code=16)
 
   def write_multiple_coils(self, start_address, value: list, unit_id=1) -> bool:
     """写多个线圈
@@ -408,7 +436,8 @@ class ModbusTcpClient:
     """
 
     self.__func = "write_multiple_coils"
-    return self.__write_coils(start_address, value, unit_id)
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__write_coils, sock, start_address, value, unit_id)
 
   def write_single_coils(self, address, value: int, unit_id=1) -> bool:
     """写单个线圈
@@ -422,5 +451,6 @@ class ModbusTcpClient:
         bool: True
     """
 
-    self.__func = "write_multiple_coils"
-    return self.__write_coils(address, (value,), unit_id)
+    self.__func = "write_single_coils"
+    sock = self.__sockets.get_socket()
+    return self.__threads.run(self.__write_coils, sock, address, (value,), unit_id)

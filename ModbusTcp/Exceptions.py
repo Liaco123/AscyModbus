@@ -2,7 +2,7 @@
 # @ Author: Liaco
 # @ Create Time: 2024-06-23 16:14:43
 # @ Modified by: Liaco
-# @ Modified time: 2024-06-23 18:43:34
+# @ Modified time: 2024-06-23 22:10:15
 # @ Description:
 """
 
@@ -49,10 +49,9 @@ class ModbusException(Exception, metaclass=Singleton):
     super().__init__(f"{error_code.name}: {message}")
 
 
-# 具体的 Modbus 异常类
 class IllegalFunction(ModbusException):
-  def __init__(self, msg) -> None:
-    super().__init__(ModbusError.ILLEGAL_FUNCTION, f"{msg}")
+  def __init__(self, msg: str) -> None:
+    super().__init__(ModbusError.ILLEGAL_FUNCTION, msg)
 
 
 class IllegalDataAddress(ModbusException):
@@ -62,7 +61,7 @@ class IllegalDataAddress(ModbusException):
 
 class IllegalDataValue(ModbusException):
   def __init__(self) -> None:
-    super().__init__(ModbusError.ILLEGAL_DATA_VALUE, "Illegal data value ")
+    super().__init__(ModbusError.ILLEGAL_DATA_VALUE, "Illegal data value")
 
 
 class SlaveDeviceFailure(ModbusException):
@@ -71,8 +70,8 @@ class SlaveDeviceFailure(ModbusException):
 
 
 class Acknowledge(ModbusException):
-  def __init__(self, msg) -> None:
-    super().__init__(ModbusError.ACKNOWLEDGE, f"Error :{msg}")
+  def __init__(self, msg: str) -> None:
+    super().__init__(ModbusError.ACKNOWLEDGE, msg)
 
 
 class SlaveDeviceBusy(ModbusException):
