@@ -1,26 +1,43 @@
 import asyncio
 
+from AscynioModbus import LOGGER, AsyncModbusTCP, DataFormat, Exceptions
 
-class ModbusTCP:
-  def __init__(self, host, port):
-    self.host = host
-    self.port = port
-    self.reader = None
-    self.writer = None
 
-  async def connect(self, timeout=10):
+async def read_registers(client: AsyncModbusTCP, task_id):
+  try:
+    response = await client.read_coils(0, 10, unit_id=1)
+    # response = await client.write_single_registers(0, -200, unit_id=1)
+    # response = await client.read_coils(0, 10, unit_id=1)
+    LOGGER.info(f"任务 {task_id}: 响应 2 = {response}")
+  except Exception as e:
+    LOGGER.error(f"任务 {task_id}: 发生异常：{e}")
+
+
+async def main(client):
+  tasks = []
+  for i in range(5):
+    tasks.append(asyncio.create_task(read_registers(client, i)))
+  try:
+    await asyncio.gather(*tasks)
+  except Exception as e:
+    for task in tasks:
+      task.cancel()
+    LOGGER.error(f"主任务异常：{e}")
+
+
+if __name__ == "__main__":
+  LOGGER.setLevel("INFO")
+  ip = "127.0.0.1"
+  client = AsyncModbusTCP(ip, port=502, data_format=DataFormat.SIGNED_32_INT_LITTLE_BYTE_SWAP)
+
+  async def run():
     try:
-      self.reader, self.writer = await asyncio.wait_for(asyncio.open_connection(self.host, self.port), timeout)
-      print(f"Connected to {self.host}:{self.port} ")
-    except asyncio.TimeoutError:
-      print(f"Connection to {self.host}:{self.port} timed out.")
-    except OSError as e:
-      print(f"OS error occurred: {e}")
+      await client.connect()
+      await main(client)
+    except Exception as e:
+      LOGGER.error(f"运行时发生异常：{e}")
+    finally:
+      LOGGER.info(f"从 {ip} 断开连接")
+      await client.disconnect()
 
-  async def main(self):
-    await self.connect()
-
-
-# Example usage
-modbus_tcp = ModbusTCP("192.168.2.1", 502)
-asyncio.run(modbus_tcp.main())
+  asyncio.run(run())
