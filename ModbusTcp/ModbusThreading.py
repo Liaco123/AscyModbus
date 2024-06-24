@@ -32,7 +32,7 @@ class ModbusTcpClient:
     self.__data_format = data_format
     self.__threads = execute(kwargs.get("threads", 10))
     self.__sockets = SocketManager(kwargs.get("sockts", 10))
-    self.__wait_writed = False
+    self.__wait_writed = True
     self.connect()
 
   def __enter__(self):
@@ -156,7 +156,8 @@ class ModbusTcpClient:
     sock.sendall(request)
 
     try:
-      response = sock.recv(1024)
+      response = sock.recv(6)
+      response += sock.recv(response[-1])
       self.__sockets.release_socket(sock)
     except Exceptions.ModbusException as e:
       raise e
@@ -175,7 +176,8 @@ class ModbusTcpClient:
 
     try:
       sock.sendall(request)
-      response = sock.recv(1024)
+      response = sock.recv(6)
+      response += sock.recv(response[-1])
       self.__sockets.release_socket(sock)
       self.__handle_error(response[0:9])
       res = self.__res2bit(quantity, response[9:])
@@ -192,7 +194,8 @@ class ModbusTcpClient:
     sock.sendall(request)
 
     try:
-      response = sock.recv(1024)
+      response = sock.recv(6)
+      response += sock.recv(response[-1])
       self.__sockets.release_socket(sock)
       LOGGER.debug(f"response = {response}")
       self.__handle_error(response[0:9])
@@ -217,7 +220,8 @@ class ModbusTcpClient:
     sock.sendall(request)
 
     try:
-      response = sock.recv(1024)
+      response = sock.recv(6)
+      response += sock.recv(response[-1])
       self.__sockets.release_socket(sock)
       LOGGER.debug(f"response = {response}")
       self.__handle_error(response[0:9])
